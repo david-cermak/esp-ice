@@ -3,3 +3,5 @@ dependencies:
     path: ${IDF_PATH}/examples/common_components/protocol_examples_common
   esp-ice:
     path: ../../..
+  espressif/mosquitto:
+    version: "*"

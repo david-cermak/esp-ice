@@ -17,6 +17,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "esp_netif_sntp.h"
+#include "mosq_broker.h"
 
 #define BUFFER_SIZE 1024
 #define START_COLLECTING    1
@@ -85,6 +86,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
             printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
             printf("DATA=%.*s\r\n", event->data_len, event->data);
+
+            if (topic == "/sync/temp1")
+                juice_send(agent1, "message" OUR_CLIENT,6);
+
             if (memcmp(event->topic, "/topic123789/desc" THEIR_CLIENT, event->topic_len) == 0) {
                 memcpy(s_remote_desc, event->data, event->data_len);
                 s_remote_desc[event->data_len] = '\0';
@@ -186,7 +191,7 @@ int test_connectivity() {
     }
     ESP_LOGI(TAG, "Planned sync at: %02d:%02d:03", sync_hour, sync_min);
 
-    juice_set_log_level(JUICE_LOG_LEVEL_VERBOSE);
+    juice_set_log_level(JUICE_LOG_LEVEL_INFO);
 
     // Agent 1: Create agent
     juice_config_t config1;
@@ -272,6 +277,17 @@ int test_connectivity() {
         printf("Remote address 1: %s\n", remoteAddr);
     }
 
+    close_mqtt();
+    esp_mqtt_client_config_t mqtt_cfg = {
+            .broker.address.uri = "mqtt://127.0.0.1",
+            .task.stack_size = 16384,
+    };
+    esp_mqtt_client_subscribe(client, "/temp1/" THEIR_CLIENT, 0);
+
+    struct mosq_broker_config config = { .host = "0.0.0.0", .port = 3333, .tls_cfg = NULL };
+    // broker continues to run in this task
+    mosq_broker_run(&config);
+
     while (1) {
         juice_send(agent1, "message" OUR_CLIENT,6);
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -333,4 +349,5 @@ static void on_recv1(juice_agent_t *agent, const char *data, size_t size, void *
     memcpy(buffer, data, size);
     buffer[size] = '\0';
     printf("Received 1: %s\n", buffer);
+    mqtt_publish(temp1, data);
 }
