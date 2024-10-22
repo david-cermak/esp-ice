@@ -50,6 +50,49 @@ static const char *TAG = "mqtt_example";
 #define OUR_PORT 12346
 #endif
 
+int publish = 0;
+
+static void mqtt_event_handler2(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32 "", base, event_id);
+    esp_mqtt_event_handle_t event = event_data;
+    esp_mqtt_client_handle_t client = event->client;
+    int msg_id;
+    switch ((esp_mqtt_event_id_t)event_id) {
+        case MQTT_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+            msg_id = esp_mqtt_client_subscribe(client, "/tx_topic/", 0);
+            ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+            publish = 1;
+            break;
+        case MQTT_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+            break;
+
+        case MQTT_EVENT_SUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_UNSUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_PUBLISHED:
+            ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_DATA:
+            ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+            printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+            printf("DATA=%.*s\r\n", event->data_len, event->data);
+            break;
+
+        case MQTT_EVENT_ERROR:
+            ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+            break;
+        default:
+            ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+            break;
+    }
+}
+
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32 "", base, event_id);
@@ -67,7 +110,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
             msg_id = esp_mqtt_client_subscribe(client, "/topic123789/ready" THEIR_CLIENT, 0);
             ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
-
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -155,6 +197,7 @@ static void setup_sntp(void)
 }
 
 
+#if CLIENT1
 // Task function
 void start_mqtt_broker_task(void *pvParameter)
 {
@@ -167,9 +210,15 @@ void start_mqtt_broker_task(void *pvParameter)
         vTaskDelay(1000 / portTICK_PERIOD_MS); // Delay for 1 second
     }
 }
+#endif
+
+#include "esp_random.h"
 
 int test_connectivity() {
     event_group = xEventGroupCreate();
+#if CLIENT1
+    xTaskCreate(&start_mqtt_broker_task, "mqtt_broker_task", 1024*4, NULL, 5, NULL);
+#endif
 
     esp_mqtt_client_config_t mqtt_cfg = {
             .broker.address.uri = "mqtt://mqtt.eclipseprojects.io",
@@ -290,31 +339,45 @@ int test_connectivity() {
         printf("Local address  1: %s\n", localAddr);
         printf("Remote address 1: %s\n", remoteAddr);
     }
-#if 1
+#if CLIENT1
     // Close the co-ordinator mqtt connection
-    if (esp_mqtt_client_stop(client) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to stop mqtt client task");
-        return 1;
-    }
+//    if (esp_mqtt_client_stop(client) != ESP_OK) {
+//        ESP_LOGE(TAG, "Failed to stop mqtt client task");
+//        return 1;
+//    }
+    esp_mqtt_client_destroy(client);
 
-    xTaskCreate(&start_mqtt_broker_task, "mqtt_broker_task", 1024*4, NULL, 5, NULL);
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     // Run mqtt client
-    mqtt_cfg.broker.address.uri = "mqtt://127.0.0.1";
+    mqtt_cfg.broker.address.uri = "mqtt://127.0.0.1:3333";
     mqtt_cfg.task.stack_size = 16384;
     client = esp_mqtt_client_init(&mqtt_cfg);
-    if(client) {
-        esp_mqtt_client_subscribe(client, "/tx_topic/", 0);
-    } else {
-        ESP_LOGE(TAG, "Failed to start mqtt client");
-    }
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler2, NULL);
+    esp_mqtt_client_start(client);
 
-#endif
+    vTaskDelay(pdMS_TO_TICKS(2000));
+//    if(client) {
+//        esp_mqtt_client_subscribe(client, "/tx_topic/", 0);
+//    } else {
+//        ESP_LOGE(TAG, "Failed to start mqtt client");
+//    }
+
+
     while (1) {
         juice_send(agent1, "heart-beat", strlen("heart-beat"));
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
+#else
+    while (1) {
+        float temp = 21.0 + ( esp_random()%10)/10.0;
+        char str[32];
+        snprintf(str, sizeof(str), "%02.1f", temp);
+        juice_send(agent1, str, sizeof(str));
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+
+#endif
 
     // Agent 1: destroy
     juice_destroy(agent1);
@@ -373,16 +436,19 @@ static void on_recv1(juice_agent_t *agent, const char *data, size_t size, void *
     buffer[size] = '\0';
     printf("Received 1: %s\n", buffer);
 
+#if CLIENT2
     if(strcmp(data, "heart-beat")) {
         return;
     }
-
-    int msg_id = esp_mqtt_client_publish(client,
-                                        "/rx_topic/",
-                                        data,
-                                        0, 1, 0);
-    if (msg_id == -1) {
-        ESP_LOGE(TAG, "mqtt client not connected");
-        return;
+#endif
+    if (publish) {
+        int msg_id = esp_mqtt_client_publish(client,
+                                             "/rx_topic/",
+                                             data,
+                                             0, 1, 0);
+        if (msg_id == -1) {
+            ESP_LOGE(TAG, "mqtt client not connected");
+            return;
+        }
     }
 }

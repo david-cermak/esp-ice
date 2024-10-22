@@ -39,17 +39,25 @@
 #elif defined(CLIENT2)
 #define OUR_CLIENT "2"
 #endif
-#define EXAMPLE_ESP_WIFI_AP_SSID      "myssid"OUR_CLIENT
-#define EXAMPLE_ESP_WIFI_AP_PASSWD    "mypassword"
+#define EXAMPLE_ESP_WIFI_AP_SSID      "myssid123"OUR_CLIENT
+//OUR_CLIENT
+#define EXAMPLE_ESP_WIFI_AP_PASSWD    "mypassword123"
 #define EXAMPLE_ESP_WIFI_CHANNEL   1
 #define EXAMPLE_MAX_STA_CONN       4
 #define EXAMPLE_ESP_MAXIMUM_RETRY  3
 
-//#define EXAMPLE_ESP_WIFI_STA_SSID      "Avrow"
-//#define EXAMPLE_ESP_WIFI_STA_PASSWD    "Blue@Bulb"
-#define EXAMPLE_ESP_WIFI_STA_SSID      "dotDashDotDot"
-#define EXAMPLE_ESP_WIFI_STA_PASSWD    "Root@123"
+#define EXAMPLE_ESP_WIFI_STA_SSID      "ESPWorkshop"
+#define EXAMPLE_ESP_WIFI_STA_PASSWD    "ESP32-C6"
 
+#if defined(CLIENT1)
+#define OUR_CLIENT "1"
+#define THEIR_CLIENT "2"
+#define OUR_PORT 12345
+#elif defined(CLIENT2)
+#define OUR_CLIENT "2"
+#define THEIR_CLIENT "1"
+#define OUR_PORT 12346
+#endif
 
 /* The event group allows multiple bits for each event, but we only care about two events:
  * - we are connected to the AP with an IP
@@ -106,15 +114,6 @@ esp_netif_t *wifi_init_softap(void)
 {
     esp_netif_t *esp_netif_ap = esp_netif_create_default_wifi_ap();
 
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        NULL));
-
     wifi_config_t wifi_config = {
         .ap = {
             .ssid = EXAMPLE_ESP_WIFI_AP_SSID,
@@ -132,89 +131,63 @@ esp_netif_t *wifi_init_softap(void)
         wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     }
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+//    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    //ESP_ERROR_CHECK(esp_wifi_start());
+//    ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGI(TAG_AP, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
              EXAMPLE_ESP_WIFI_AP_SSID, EXAMPLE_ESP_WIFI_AP_PASSWD, EXAMPLE_ESP_WIFI_CHANNEL);
 
-#if IP_NAPT
-//    esp_netif_napt_enable(esp_netif_ap, 1);
-    struct netif *lwip_netif;
-
-    lwip_netif = esp_netif_get_netif_impl(esp_netif_ap);
-    int ret = ip_napt_enable_netif(lwip_netif, 1);
-    if(ret == 0) {
-        ESP_LOGE(TAG_STA,"NETIF is not up yet");
-    }
-#endif
-
     return esp_netif_ap;
 }
 
-void wifi_init_sta(void)
+esp_netif_t *wifi_init_sta(void)
 {
-    s_wifi_event_group = xEventGroupCreate();
-
     esp_netif_t *esp_netif_sta = esp_netif_create_default_wifi_sta();
 
-    //wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    //ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    esp_event_handler_instance_t instance_any_id;
-    esp_event_handler_instance_t instance_got_ip;
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        &instance_any_id));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                        IP_EVENT_STA_GOT_IP,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        &instance_got_ip));
-
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = EXAMPLE_ESP_WIFI_STA_SSID,
-            .password = EXAMPLE_ESP_WIFI_STA_PASSWD,
-            /* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (pasword len => 8).
-             * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
-             * to WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK and set the password with length and format matching to
-	     * WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK standards.
-             */
-            .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
-            .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
-        },
+    wifi_config_t wifi_sta_config = {
+            .sta = {
+                    .ssid = EXAMPLE_ESP_WIFI_STA_SSID,
+                    .password = EXAMPLE_ESP_WIFI_STA_PASSWD,
+                    .scan_method = WIFI_ALL_CHANNEL_SCAN,
+                    .failure_retry_cnt = EXAMPLE_ESP_MAXIMUM_RETRY,
+                    /* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (password len => 8).
+                     * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
+                     * to WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK and set the password with length and format matching to
+                    * WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK standards.
+                     */
+                    .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
+                    .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
+            },
     };
-    //ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_sta_config) );
 
     ESP_LOGI(TAG_STA, "wifi_init_sta finished.");
+//    ESP_LOGI(TAG_STA, "wifi_init_sta finished.");
+//
+//    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
+//     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
+//    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+//            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+//            pdFALSE,
+//            pdFALSE,
+//            portMAX_DELAY);
+//
+//    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
+//     * happened. */
+//    if (bits & WIFI_CONNECTED_BIT) {
+//        ESP_LOGI(TAG_STA, "connected to ap SSID:%s password:%s",
+//                 EXAMPLE_ESP_WIFI_STA_SSID, EXAMPLE_ESP_WIFI_STA_PASSWD);
+//    } else if (bits & WIFI_FAIL_BIT) {
+//        ESP_LOGI(TAG_STA, "Failed to connect to SSID:%s, password:%s",
+//                 EXAMPLE_ESP_WIFI_STA_SSID, EXAMPLE_ESP_WIFI_STA_PASSWD);
+//    } else {
+//        ESP_LOGE(TAG_STA, "UNEXPECTED EVENT");
+//    }
 
-    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
-     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-            pdFALSE,
-            pdFALSE,
-            portMAX_DELAY);
-
-    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
-     * happened. */
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG_STA, "connected to ap SSID:%s password:%s",
-                 EXAMPLE_ESP_WIFI_STA_SSID, EXAMPLE_ESP_WIFI_STA_PASSWD);
-    } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG_STA, "Failed to connect to SSID:%s, password:%s",
-                 EXAMPLE_ESP_WIFI_STA_SSID, EXAMPLE_ESP_WIFI_STA_PASSWD);
-    } else {
-        ESP_LOGE(TAG_STA, "UNEXPECTED EVENT");
-    }
-
-    esp_netif_set_default_netif(esp_netif_sta);
+//    esp_netif_set_default_netif(esp_netif_sta);
+    return esp_netif_sta;
 }
 
 void app_main(void)
@@ -229,22 +202,52 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+    s_wifi_event_group = xEventGroupCreate();
 
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &wifi_event_handler,
+                                                        NULL,
+                                                        NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                        IP_EVENT_STA_GOT_IP,
+                                                        &wifi_event_handler,
+                                                        NULL,
+                                                        NULL));
+
+//#ifdef CLIENT1
     ESP_LOGI(TAG_AP, "ESP_WIFI_MODE_AP");
-    esp_netif_t *esp_netif_ap = wifi_init_softap();
-
+    wifi_init_softap();
+//#endif
     ESP_LOGI(TAG_STA, "ESP_WIFI_MODE_STA");
-    wifi_init_sta();
+    esp_netif_t *esp_netif_sta = wifi_init_sta();
+    ESP_ERROR_CHECK(esp_wifi_start() );
 
-#if IP_NAPT
-    struct netif *lwip_netif;
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                           pdFALSE,
+                                           pdFALSE,
+                                           portMAX_DELAY);
 
-    lwip_netif = esp_netif_get_netif_impl(esp_netif_ap);
-    int ret_napt = ip_napt_enable_netif(lwip_netif, 1);
-    if(ret_napt == 0) {
-        ESP_LOGE(TAG_STA,"NETIF is not up yet");
+    /* xEventGroupWaitBits() returns the bits before the call returned,
+     * hence we can test which event actually happened. */
+    if (bits & WIFI_CONNECTED_BIT) {
+        ESP_LOGI(TAG_STA, "connected to ap SSID:%s password:%s",
+                 EXAMPLE_ESP_WIFI_STA_SSID, EXAMPLE_ESP_WIFI_STA_PASSWD);
+//        softap_set_dns_addr(esp_netif_ap,esp_netif_sta);
+    } else if (bits & WIFI_FAIL_BIT) {
+        ESP_LOGI(TAG_STA, "Failed to connect to SSID:%s, password:%s",
+                 EXAMPLE_ESP_WIFI_STA_SSID, EXAMPLE_ESP_WIFI_STA_PASSWD);
+    } else {
+        ESP_LOGE(TAG_STA, "UNEXPECTED EVENT");
+        return;
     }
-#endif
 
+    /* Set sta as the default interface */
+    esp_netif_set_default_netif(esp_netif_sta);
     test_connectivity();
 }
